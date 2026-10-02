@@ -1,0 +1,27 @@
+{
+    "video_source": "sample/input.mp4",
+
+    "detection": {
+        "frame_skip": 5,
+        "confidence_threshold": 0.5,
+        "image_size": 640
+    },
+
+    "recognition": {
+        "similarity_threshold": 0.45
+    },
+
+    "tracking": {
+        "max_lost_frames": 30
+    },
+
+    "database": {
+        "path": "data/visitors.db"
+    },
+
+    "logging": {
+        "event_log": "logs/events.log",
+        "entry_directory": "logs/entries",
+        "exit_directory": "logs/exits"
+    }
+}

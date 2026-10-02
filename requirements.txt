@@ -1,0 +1,6 @@
+ultralytics
+insightface
+opencv-python
+numpy
+onnxruntime
+pillow
