@@ -5,11 +5,6 @@ class FaceRegistry:
     def __init__(self, similarity_threshold=0.45):
         self.similarity_threshold = similarity_threshold
 
-        # Stores:
-        # {
-        #     "PERSON_001": embedding,
-        #     "PERSON_002": embedding
-        # }
         self.registered_faces = {}
 
         self.next_id = 1
@@ -20,8 +15,15 @@ class FaceRegistry:
         return face_id
 
     def _cosine_similarity(self, embedding1, embedding2):
-        embedding1 = np.asarray(embedding1)
-        embedding2 = np.asarray(embedding2)
+        embedding1 = np.asarray(
+            embedding1,
+            dtype=np.float32
+        )
+
+        embedding2 = np.asarray(
+            embedding2,
+            dtype=np.float32
+        )
 
         norm1 = np.linalg.norm(embedding1)
         norm2 = np.linalg.norm(embedding2)
@@ -41,8 +43,9 @@ class FaceRegistry:
         best_face_id = None
         best_similarity = 0.0
 
-        for face_id, registered_embedding in self.registered_faces.items():
-
+        for face_id, registered_embedding in (
+            self.registered_faces.items()
+        ):
             similarity = self._cosine_similarity(
                 embedding,
                 registered_embedding
@@ -68,11 +71,15 @@ class FaceRegistry:
         return face_id
 
     def identify_or_register(self, embedding):
-        face_id, similarity = self.find_match(embedding)
+        face_id, similarity = self.find_match(
+            embedding
+        )
 
         if face_id is not None:
             return face_id, False, similarity
 
-        face_id = self.register_face(embedding)
+        face_id = self.register_face(
+            embedding
+        )
 
         return face_id, True, 1.0
