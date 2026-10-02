@@ -1,31 +1,101 @@
 import logging
-import os
+from pathlib import Path
 
 
-def setup_logger(log_file: str):
+class EventLogger:
+    def __init__(self, log_path):
+        self.log_path = Path(log_path)
 
-    directory = os.path.dirname(log_file)
+        self.log_path.parent.mkdir(
+            parents=True,
+            exist_ok=True
+        )
 
-    if directory:
-        os.makedirs(directory, exist_ok=True)
+        self.logger = logging.getLogger(
+            "face_tracker_events"
+        )
 
-    logger = logging.getLogger("FaceTracker")
+        self.logger.setLevel(logging.INFO)
 
-    logger.setLevel(logging.INFO)
+        # Prevent duplicate handlers if the logger
+        # is initialized more than once.
+        self.logger.handlers.clear()
 
-    if not logger.handlers:
-
-        file_handler = logging.FileHandler(
-            log_file,
+        handler = logging.FileHandler(
+            self.log_path,
             encoding="utf-8"
         )
 
         formatter = logging.Formatter(
-            "%(asctime)s | %(levelname)s | %(message)s"
+            "%(asctime)s | %(levelname)s | %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
         )
 
-        file_handler.setFormatter(formatter)
+        handler.setFormatter(formatter)
 
-        logger.addHandler(file_handler)
+        self.logger.addHandler(handler)
 
-    return logger
+    def log(self, event_type, message):
+        self.logger.info(
+            f"{event_type} | {message}"
+        )
+
+    def registration(self, person_id):
+        self.log(
+            "REGISTRATION",
+            f"New face registered: {person_id}"
+        )
+
+    def embedding(self, person_id):
+        self.log(
+            "EMBEDDING",
+            f"Embedding generated for {person_id}"
+        )
+
+    def recognition(
+        self,
+        person_id,
+        similarity
+    ):
+        self.log(
+            "RECOGNITION",
+            f"{person_id} recognized "
+            f"(similarity={similarity:.3f})"
+        )
+
+    def tracking(
+        self,
+        person_id,
+        track_id
+    ):
+        self.log(
+            "TRACKING",
+            f"{person_id} tracked "
+            f"(track_id={track_id})"
+        )
+
+    def entry(
+        self,
+        person_id,
+        track_id,
+        image_path
+    ):
+        self.log(
+            "ENTRY",
+            f"{person_id} entered "
+            f"(track_id={track_id}, "
+            f"image={image_path})"
+        )
+
+    def exit(
+        self,
+        person_id,
+        track_id,
+        image_path
+    ):
+        self.log(
+            "EXIT",
+            f"{person_id} exited "
+            f"(track_id={track_id}, "
+            f"image={image_path})"
+        )

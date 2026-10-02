@@ -1,0 +1,8 @@
+2026-10-02 22:29:49 | INFO | REGISTRATION | New face registered: PERSON_001
+2026-10-02 22:29:49 | INFO | EMBEDDING | Embedding generated for PERSON_001
+2026-10-02 22:29:49 | INFO | TRACKING | PERSON_001 tracked (track_id=1)
+2026-10-02 22:34:37 | INFO | REGISTRATION | New face registered: PERSON_001
+2026-10-02 22:34:37 | INFO | EMBEDDING | Embedding generated for PERSON_001
+2026-10-02 22:34:37 | INFO | TRACKING | PERSON_001 tracked (track_id=1)
+2026-10-02 22:34:37 | INFO | ENTRY | PERSON_001 entered (track_id=1, image=None)
+2026-10-02 22:34:37 | INFO | EXIT | PERSON_001 exited (track_id=1, image=None)
