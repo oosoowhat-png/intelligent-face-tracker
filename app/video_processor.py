@@ -114,23 +114,20 @@ class VideoProcessor:
         # ==================================================
 
         print(
-            "Loading face registry..."
-        )
-
-        self.registry = FaceRegistry(
-            similarity_threshold=similarity_threshold
-        )
-
-        # ==================================================
-        # DATABASE
-        # ==================================================
-
-        print(
             "Loading database..."
         )
 
         self.database = Database(
             database_path
+        )
+
+        print(
+            "Loading face registry..."
+        )
+
+        self.registry = FaceRegistry(
+            similarity_threshold=similarity_threshold,
+            database=self.database
         )
 
         # ==================================================

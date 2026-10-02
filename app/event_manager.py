@@ -5,6 +5,7 @@ import cv2
 
 
 class EventManager:
+
     def __init__(
         self,
         database,
@@ -36,20 +37,20 @@ class EventManager:
 
         self.max_lost_frames = max_lost_frames
 
-        # --------------------------------------------------
-        # Track-level state
+        # ==================================================
+        # ACTIVE TRACKS
         #
         # track_id -> {
         #     person_id,
         #     last_seen_frame,
         #     face_crop
         # }
-        # --------------------------------------------------
+        # ==================================================
 
         self.active_tracks = {}
 
-        # --------------------------------------------------
-        # Person-level state
+        # ==================================================
+        # ACTIVE PEOPLE
         #
         # person_id -> {
         #     track_ids,
@@ -57,31 +58,40 @@ class EventManager:
         #     face_crop
         # }
         #
-        # This is important because ByteTrack can change
-        # track IDs while the same person is still present.
-        # --------------------------------------------------
+        # A person can have multiple ByteTrack IDs during
+        # one visit. We therefore track at PERSON level.
+        # ==================================================
 
         self.active_people = {}
 
-        # People that have been registered at least once
+        # ==================================================
+        # KNOWN PEOPLE
+        #
+        # Used only for runtime bookkeeping.
+        # Persistent identity is handled by FaceRegistry
+        # and SQLite embeddings.
+        # ==================================================
+
         self.known_people = set()
 
     # ======================================================
-    # TIME HELPERS
+    # TIME
     # ======================================================
 
     def _timestamp(self):
+
         return datetime.now().strftime(
             "%Y-%m-%d %H:%M:%S"
         )
 
     def _filename_timestamp(self):
+
         return datetime.now().strftime(
             "%Y%m%d_%H%M%S_%f"
         )
 
     # ======================================================
-    # IMAGE SAVING
+    # SAVE FACE IMAGE
     # ======================================================
 
     def _save_face_image(
@@ -91,10 +101,10 @@ class EventManager:
         face_crop
     ):
         """
-        Safely save a face crop.
+        Save a face crop as a JPEG.
 
         Returns:
-            str: saved image path
+            str: saved path
             None: if image could not be saved
         """
 
@@ -110,13 +120,13 @@ class EventManager:
         if face_crop.size == 0:
             return None
 
-        image_timestamp = (
+        timestamp = (
             self._filename_timestamp()
         )
 
         image_path = (
             directory
-            / f"{person_id}_{image_timestamp}.jpg"
+            / f"{person_id}_{timestamp}.jpg"
         )
 
         success = cv2.imwrite(
@@ -124,10 +134,10 @@ class EventManager:
             face_crop
         )
 
-        if success:
-            return str(image_path)
+        if not success:
+            return None
 
-        return None
+        return str(image_path)
 
     # ======================================================
     # PROCESS DETECTION
@@ -142,37 +152,44 @@ class EventManager:
         is_new
     ):
         """
-        Process one recognized face.
+        Process one recognized face detection.
 
-        Important behavior:
+        Important:
 
-        New person:
-            PERSON_001 -> ENTRY
+        A new ByteTrack ID does NOT automatically create
+        a new ENTRY.
 
-        Same person with same track:
-            PERSON_001 -> recognition only
+        ENTRY is created only when the person is not
+        currently active.
 
-        Same person with new ByteTrack ID:
-            PERSON_001 -> recognition only
-            NO duplicate ENTRY
+        Example:
 
-        If person completely disappears:
-            PERSON_001 -> EXIT
+            PERSON_001 / track 139
+                -> ENTRY
+
+            PERSON_001 / track 139
+                -> recognition
+
+            PERSON_001 / track 2
+                -> recognition
+                -> NO new ENTRY
+
+            PERSON_001 disappears
+                -> EXIT
         """
 
         timestamp = self._timestamp()
 
-        # --------------------------------------------------
-        # Registration / Recognition
-        # --------------------------------------------------
+        # ==================================================
+        # REGISTRATION / RECOGNITION
+        # ==================================================
 
         if is_new:
 
-            self.database.add_visitor(
-                person_id,
-                timestamp
-            )
-
+            # New identity.
+            #
+            # record_entry() below will create the visitor
+            # record with visit_count = 1.
             self.known_people.add(
                 person_id
             )
@@ -182,6 +199,11 @@ class EventManager:
             )
 
         else:
+
+            # Existing identity.
+            self.known_people.add(
+                person_id
+            )
 
             self.database.update_visitor(
                 person_id,
@@ -193,38 +215,45 @@ class EventManager:
                 similarity
             )
 
-        # --------------------------------------------------
-        # Embedding log
-        # --------------------------------------------------
+        # ==================================================
+        # EMBEDDING EVENT
+        # ==================================================
 
         self.logger.embedding(
             person_id
         )
 
-        # --------------------------------------------------
-        # Tracking log
-        # --------------------------------------------------
+        # ==================================================
+        # TRACKING EVENT
+        # ==================================================
 
         self.logger.tracking(
             person_id,
             track_id
         )
 
-        # --------------------------------------------------
-        # Prepare face crop
-        # --------------------------------------------------
+        # ==================================================
+        # VALIDATE FACE CROP
+        # ==================================================
 
         valid_crop = (
             face_crop is not None
-            and hasattr(face_crop, "size")
+            and hasattr(
+                face_crop,
+                "size"
+            )
             and face_crop.size > 0
         )
 
-        latest_crop = (
-            face_crop.copy()
-            if valid_crop
-            else None
-        )
+        if valid_crop:
+
+            latest_crop = (
+                face_crop.copy()
+            )
+
+        else:
+
+            latest_crop = None
 
         # ==================================================
         # PERSON ALREADY ACTIVE
@@ -238,10 +267,12 @@ class EventManager:
                 ]
             )
 
-            # Add the current ByteTrack ID
+            # Add current ByteTrack ID
             person_data[
                 "track_ids"
-            ].add(track_id)
+            ].add(
+                track_id
+            )
 
             # Update latest face crop
             if latest_crop is not None:
@@ -250,17 +281,30 @@ class EventManager:
                     "face_crop"
                 ] = latest_crop
 
-            # Update person last-seen frame later
-            # through update_frame()
-
         # ==================================================
-        # NEW ACTIVE PERSON
+        # NEW ACTIVE SESSION
         # ==================================================
 
         else:
 
             # --------------------------------------------------
-            # Save ENTRY image
+            # This is a genuine new ENTRY/session.
+            # --------------------------------------------------
+
+            # Record visit.
+            #
+            # New person:
+            #   visit_count = 1
+            #
+            # Returning person:
+            #   visit_count += 1
+            self.database.record_entry(
+                person_id,
+                timestamp
+            )
+
+            # --------------------------------------------------
+            # Save entry image
             # --------------------------------------------------
 
             saved_image_path = (
@@ -272,7 +316,7 @@ class EventManager:
             )
 
             # --------------------------------------------------
-            # Database ENTRY
+            # Database ENTRY event
             # --------------------------------------------------
 
             self.database.add_visit_event(
@@ -331,19 +375,20 @@ class EventManager:
         """
         Update tracking state.
 
-        A track is considered lost after max_lost_frames.
+        A track becomes expired after max_lost_frames.
 
-        A person exits only when ALL of that person's
-        ByteTrack IDs have disappeared.
+        A person receives EXIT only after ALL active
+        ByteTrack IDs associated with that person have
+        expired.
         """
 
         visible_track_ids = set(
             visible_track_ids
         )
 
-        # --------------------------------------------------
-        # Update visible tracks
-        # --------------------------------------------------
+        # ==================================================
+        # UPDATE VISIBLE TRACKS
+        # ==================================================
 
         for track_id in visible_track_ids:
 
@@ -366,10 +411,6 @@ class EventManager:
                 ]
             )
 
-            # --------------------------------------------------
-            # Update person-level state
-            # --------------------------------------------------
-
             if person_id in self.active_people:
 
                 person_data = (
@@ -382,30 +423,33 @@ class EventManager:
                     "last_seen_frame"
                 ] = current_frame_number
 
-                # Update latest crop if available
+                # Update latest crop
                 if (
                     track_data[
                         "face_crop"
                     ] is not None
                 ):
+
                     person_data[
                         "face_crop"
-                    ] = track_data[
-                        "face_crop"
-                    ]
+                    ] = (
+                        track_data[
+                            "face_crop"
+                        ]
+                    )
 
-        # --------------------------------------------------
-        # Find tracks that disappeared
-        # --------------------------------------------------
+        # ==================================================
+        # FIND EXPIRED TRACKS
+        # ==================================================
 
-        tracks_to_remove = []
+        expired_tracks = []
 
         for (
             track_id,
             track_data
         ) in self.active_tracks.items():
 
-            # Currently visible
+            # Track is visible
             if track_id in visible_track_ids:
                 continue
 
@@ -415,7 +459,7 @@ class EventManager:
                 ]
             )
 
-            # No previous frame recorded
+            # No previous timestamp.
             if last_seen is None:
 
                 track_data[
@@ -434,15 +478,15 @@ class EventManager:
                 >= self.max_lost_frames
             ):
 
-                tracks_to_remove.append(
+                expired_tracks.append(
                     track_id
                 )
 
-        # --------------------------------------------------
-        # Remove expired tracks
-        # --------------------------------------------------
+        # ==================================================
+        # REMOVE EXPIRED TRACKS
+        # ==================================================
 
-        for track_id in tracks_to_remove:
+        for track_id in expired_tracks:
 
             if track_id not in self.active_tracks:
                 continue
@@ -465,7 +509,7 @@ class EventManager:
             ]
 
             # --------------------------------------------------
-            # Update person-level state
+            # Person might already have disappeared.
             # --------------------------------------------------
 
             if person_id not in self.active_people:
@@ -477,29 +521,31 @@ class EventManager:
                 ]
             )
 
+            # Remove this track from the person's active tracks
             person_data[
                 "track_ids"
             ].discard(
                 track_id
             )
 
-            # --------------------------------------------------
-            # IMPORTANT:
+            # ==================================================
+            # IMPORTANT
             #
-            # If another ByteTrack ID still represents the
-            # same person, DO NOT create EXIT.
-            # --------------------------------------------------
+            # If another track still belongs to this person,
+            # they are still considered inside.
+            # ==================================================
 
             if person_data[
                 "track_ids"
             ]:
+
                 continue
 
-            # --------------------------------------------------
-            # No tracks remain.
+            # ==================================================
+            # NO ACTIVE TRACKS REMAIN
             #
-            # Therefore the person has exited.
-            # --------------------------------------------------
+            # PERSON HAS EXITED.
+            # ==================================================
 
             self._create_exit_event(
                 person_id=person_id,
@@ -523,8 +569,10 @@ class EventManager:
         track_id=None
     ):
         """
-        Create exactly one EXIT event.
+        Create one EXIT event for a completed visit.
         """
+
+        timestamp = self._timestamp()
 
         face_crop = (
             person_data.get(
@@ -532,11 +580,9 @@ class EventManager:
             )
         )
 
-        timestamp = self._timestamp()
-
-        # --------------------------------------------------
-        # Save exit image
-        # --------------------------------------------------
+        # ==================================================
+        # SAVE EXIT IMAGE
+        # ==================================================
 
         saved_image_path = (
             self._save_face_image(
@@ -546,9 +592,9 @@ class EventManager:
             )
         )
 
-        # --------------------------------------------------
-        # Save EXIT event
-        # --------------------------------------------------
+        # ==================================================
+        # DATABASE EXIT
+        # ==================================================
 
         self.database.add_visit_event(
             person_id=person_id,
@@ -558,9 +604,9 @@ class EventManager:
             track_id=track_id
         )
 
-        # --------------------------------------------------
-        # Log EXIT
-        # --------------------------------------------------
+        # ==================================================
+        # LOG EXIT
+        # ==================================================
 
         self.logger.exit(
             person_id,
@@ -569,7 +615,7 @@ class EventManager:
         )
 
     # ======================================================
-    # FLUSH AT END OF VIDEO
+    # END OF VIDEO
     # ======================================================
 
     def flush_remaining_tracks(
@@ -577,12 +623,12 @@ class EventManager:
         current_frame_number
     ):
         """
-        Generate EXIT events for people who are still
-        active when the video ends.
+        Create EXIT events for all people still active
+        when the video ends.
 
-        Without this method, a person appearing until the
-        final video frame might never reach the normal
-        max_lost_frames timeout.
+        This is necessary because the final video frame
+        does not give ByteTrack enough future frames to
+        reach max_lost_frames.
         """
 
         active_person_ids = list(
@@ -607,11 +653,17 @@ class EventManager:
                 )
             )
 
-            track_id = (
-                next(iter(track_ids))
-                if track_ids
-                else None
-            )
+            if track_ids:
+
+                # Use one of the person's active
+                # track IDs for the exit record.
+                track_id = next(
+                    iter(track_ids)
+                )
+
+            else:
+
+                track_id = None
 
             self._create_exit_event(
                 person_id=person_id,
@@ -619,6 +671,14 @@ class EventManager:
                 track_id=track_id
             )
 
-        # Clear state
+        # ==================================================
+        # CLEAR VIDEO-SPECIFIC STATE
+        #
+        # The persistent face identities remain in
+        # FaceRegistry/SQLite, but ByteTrack state must
+        # start fresh for the next video.
+        # ==================================================
+
         self.active_tracks.clear()
+
         self.active_people.clear()
