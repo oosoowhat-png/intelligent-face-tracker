@@ -1,119 +1,151 @@
 import sqlite3
-import os
+from pathlib import Path
 
 
 class Database:
-    def __init__(self, db_path: str):
+    def __init__(self, db_path):
         self.db_path = db_path
 
-        directory = os.path.dirname(db_path)
-
-        if directory:
-            os.makedirs(directory, exist_ok=True)
+        Path(db_path).parent.mkdir(
+            parents=True,
+            exist_ok=True
+        )
 
         self.connection = sqlite3.connect(
-            self.db_path,
-            check_same_thread=False
+            db_path
         )
 
         self.create_tables()
 
     def create_tables(self):
+
         cursor = self.connection.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS visitors (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                face_id TEXT UNIQUE NOT NULL,
+                person_id TEXT PRIMARY KEY,
                 first_seen TEXT NOT NULL,
                 last_seen TEXT NOT NULL,
-                embedding BLOB
+                visit_count INTEGER DEFAULT 1
             )
-        """)
+            """
+        )
 
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS events (
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS visits (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                face_id TEXT NOT NULL,
+                person_id TEXT NOT NULL,
                 event_type TEXT NOT NULL,
                 timestamp TEXT NOT NULL,
-                image_path TEXT
+                image_path TEXT,
+                track_id INTEGER
             )
-        """)
+            """
+        )
 
         self.connection.commit()
 
     def add_visitor(
         self,
-        face_id,
-        first_seen,
-        embedding
+        person_id,
+        timestamp
     ):
+
         cursor = self.connection.cursor()
 
         cursor.execute(
             """
-            INSERT INTO visitors
-            (face_id, first_seen, last_seen, embedding)
-            VALUES (?, ?, ?, ?)
+            INSERT OR IGNORE INTO visitors
+            (
+                person_id,
+                first_seen,
+                last_seen,
+                visit_count
+            )
+            VALUES (?, ?, ?, 1)
             """,
             (
-                face_id,
-                first_seen,
-                first_seen,
-                embedding
+                person_id,
+                timestamp,
+                timestamp
             )
         )
 
         self.connection.commit()
 
-    def update_last_seen(self, face_id, timestamp):
+    def update_visitor(
+        self,
+        person_id,
+        timestamp
+    ):
+
         cursor = self.connection.cursor()
 
         cursor.execute(
             """
             UPDATE visitors
             SET last_seen = ?
-            WHERE face_id = ?
-            """,
-            (timestamp, face_id)
-        )
-
-        self.connection.commit()
-
-    def add_event(
-        self,
-        face_id,
-        event_type,
-        timestamp,
-        image_path
-    ):
-        cursor = self.connection.cursor()
-
-        cursor.execute(
-            """
-            INSERT INTO events
-            (face_id, event_type, timestamp, image_path)
-            VALUES (?, ?, ?, ?)
+            WHERE person_id = ?
             """,
             (
-                face_id,
-                event_type,
                 timestamp,
-                image_path
+                person_id
             )
         )
 
         self.connection.commit()
 
-    def get_visitor_count(self):
+    def add_visit_event(
+        self,
+        person_id,
+        event_type,
+        timestamp,
+        image_path=None,
+        track_id=None
+    ):
+
         cursor = self.connection.cursor()
 
         cursor.execute(
-            "SELECT COUNT(*) FROM visitors"
+            """
+            INSERT INTO visits
+            (
+                person_id,
+                event_type,
+                timestamp,
+                image_path,
+                track_id
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                person_id,
+                event_type,
+                timestamp,
+                image_path,
+                track_id
+            )
         )
 
-        return cursor.fetchone()[0]
+        self.connection.commit()
+
+    def get_unique_visitor_count(self):
+
+        cursor = self.connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM visitors
+            """
+        )
+
+        result = cursor.fetchone()
+
+        return result[0]
 
     def close(self):
+
         self.connection.close()
