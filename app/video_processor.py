@@ -1,8 +1,7 @@
 import cv2
 
-from app.detector import FaceDetector
-from app.recognizer import FaceRecognizer
 from app.tracker import FaceTracker
+from app.recognizer import FaceRecognizer
 from app.face_registry import FaceRegistry
 from app.database import Database
 from app.logger import EventLogger
@@ -15,51 +14,45 @@ class VideoProcessor:
 
         self.config = config
 
-        # --------------------------------------------------
-        # Detection configuration
-        # --------------------------------------------------
+        # ==================================================
+        # CONFIGURATION
+        # ==================================================
 
-        detection_config = config["detection"]
-
-        self.frame_skip = detection_config[
-            "frame_skip"
+        detection_config = config[
+            "detection"
         ]
 
-        confidence_threshold = detection_config[
-            "confidence_threshold"
-        ]
+        self.frame_skip = int(
+            detection_config[
+                "frame_skip"
+            ]
+        )
 
-        image_size = detection_config[
-            "image_size"
-        ]
-
-        # --------------------------------------------------
-        # Recognition configuration
-        # --------------------------------------------------
+        confidence_threshold = float(
+            detection_config[
+                "confidence_threshold"
+            ]
+        )
 
         recognition_config = config[
             "recognition"
         ]
 
-        similarity_threshold = recognition_config[
-            "similarity_threshold"
-        ]
-
-        # --------------------------------------------------
-        # Tracking configuration
-        # --------------------------------------------------
+        similarity_threshold = float(
+            recognition_config[
+                "similarity_threshold"
+            ]
+        )
 
         tracking_config = config[
             "tracking"
         ]
 
-        max_lost_frames = tracking_config[
-            "max_lost_frames"
-        ]
-
-        # --------------------------------------------------
-        # Database configuration
-        # --------------------------------------------------
+        max_lost_frames = int(
+            tracking_config[
+                "max_lost_frames"
+            ]
+        )
 
         database_config = config[
             "database"
@@ -68,10 +61,6 @@ class VideoProcessor:
         database_path = database_config[
             "path"
         ]
-
-        # --------------------------------------------------
-        # Logging configuration
-        # --------------------------------------------------
 
         logging_config = config[
             "logging"
@@ -89,53 +78,80 @@ class VideoProcessor:
             "exit_directory"
         ]
 
-        # --------------------------------------------------
-        # YOLO model
-        # --------------------------------------------------
+        # ==================================================
+        # MODEL
+        # ==================================================
 
-        model_path = "models/yolov8n-face.pt"
-
-        # --------------------------------------------------
-        # Initialize components
-        # --------------------------------------------------
-
-        print("Loading face detector...")
-
-        self.detector = FaceDetector(
-            model_path=model_path,
-            confidence_threshold=confidence_threshold
+        model_path = (
+            "models/yolov8n-face.pt"
         )
 
-        print("Loading face tracker...")
+        # ==================================================
+        # TRACKER
+        # ==================================================
+
+        print(
+            "Loading face tracker..."
+        )
 
         self.tracker = FaceTracker(
             model_path=model_path,
             confidence_threshold=confidence_threshold
         )
 
-        print("Loading InsightFace...")
+        # ==================================================
+        # INSIGHTFACE
+        # ==================================================
+
+        print(
+            "Loading InsightFace..."
+        )
 
         self.recognizer = FaceRecognizer()
 
-        print("Loading face registry...")
+        # ==================================================
+        # FACE REGISTRY
+        # ==================================================
+
+        print(
+            "Loading face registry..."
+        )
 
         self.registry = FaceRegistry(
             similarity_threshold=similarity_threshold
         )
 
-        print("Loading database...")
+        # ==================================================
+        # DATABASE
+        # ==================================================
+
+        print(
+            "Loading database..."
+        )
 
         self.database = Database(
             database_path
         )
 
-        print("Loading event logger...")
+        # ==================================================
+        # EVENT LOGGER
+        # ==================================================
+
+        print(
+            "Loading event logger..."
+        )
 
         self.logger = EventLogger(
             event_log
         )
 
-        print("Loading event manager...")
+        # ==================================================
+        # EVENT MANAGER
+        # ==================================================
+
+        print(
+            "Loading event manager..."
+        )
 
         self.event_manager = EventManager(
             database=self.database,
@@ -145,31 +161,73 @@ class VideoProcessor:
             max_lost_frames=max_lost_frames
         )
 
-        self.image_size = image_size
+        self.confidence_threshold = (
+            confidence_threshold
+        )
 
-        print("All components loaded.")
+        print(
+            "All components loaded."
+        )
 
-    # ------------------------------------------------------
-    # Face crop helper
-    # ------------------------------------------------------
+    # ======================================================
+    # FACE CROP
+    # ======================================================
 
     def _crop_face(
         self,
         frame,
         bbox
     ):
+        """
+        Safely crop a face from the frame.
+        """
 
         x1, y1, x2, y2 = bbox
 
-        height, width = frame.shape[:2]
+        height, width = (
+            frame.shape[:2]
+        )
 
-        # Keep coordinates inside image
-        x1 = max(0, min(x1, width - 1))
-        y1 = max(0, min(y1, height - 1))
-        x2 = max(0, min(x2, width))
-        y2 = max(0, min(y2, height))
+        # --------------------------------------------------
+        # Clamp coordinates
+        # --------------------------------------------------
 
-        if x2 <= x1 or y2 <= y1:
+        x1 = max(
+            0,
+            min(
+                int(x1),
+                width - 1
+            )
+        )
+
+        y1 = max(
+            0,
+            min(
+                int(y1),
+                height - 1
+            )
+        )
+
+        x2 = max(
+            0,
+            min(
+                int(x2),
+                width
+            )
+        )
+
+        y2 = max(
+            0,
+            min(
+                int(y2),
+                height
+            )
+        )
+
+        if x2 <= x1:
+            return None
+
+        if y2 <= y1:
             return None
 
         face_crop = frame[
@@ -182,26 +240,64 @@ class VideoProcessor:
 
         return face_crop
 
-    # ------------------------------------------------------
-    # Process video
-    # ------------------------------------------------------
+    # ======================================================
+    # PROCESS VIDEO
+    # ======================================================
 
     def process_video(
         self,
         video_source=None
     ):
+        """
+        Process one video.
+
+        Pipeline:
+
+        Video
+          ↓
+        OpenCV
+          ↓
+        ByteTrack
+          ↓
+        Face Crop
+          ↓
+        InsightFace
+          ↓
+        Face Registry
+          ↓
+        Event Manager
+          ↓
+        SQLite + Logs + Images
+        """
 
         if video_source is None:
-            video_source = self.config[
-                "video_source"
-            ]
+
+            video_source = (
+                self.config[
+                    "video_source"
+                ]
+            )
 
         print()
-        print("=" * 60)
-        print("VIDEO PROCESSING STARTED")
-        print("=" * 60)
-        print(f"Source: {video_source}")
+        print(
+            "=" * 60
+        )
+        print(
+            "VIDEO PROCESSING STARTED"
+        )
+        print(
+            "=" * 60
+        )
+
+        print(
+            f"Source: {video_source}"
+        )
+
         print()
+
+        # ==================================================
+        # OPEN VIDEO
+        # ==================================================
 
         cap = cv2.VideoCapture(
             video_source
@@ -210,11 +306,18 @@ class VideoProcessor:
         if not cap.isOpened():
 
             print(
-                f"ERROR: Could not open video: "
-                f"{video_source}"
+                "ERROR: Could not open video:"
             )
 
-            return
+            print(
+                video_source
+            )
+
+            return False
+
+        # ==================================================
+        # VIDEO INFORMATION
+        # ==================================================
 
         total_frames = int(
             cap.get(
@@ -226,8 +329,21 @@ class VideoProcessor:
             cv2.CAP_PROP_FPS
         )
 
+        width = int(
+            cap.get(
+                cv2.CAP_PROP_FRAME_WIDTH
+            )
+        )
+
+        height = int(
+            cap.get(
+                cv2.CAP_PROP_FRAME_HEIGHT
+            )
+        )
+
         print(
-            f"Total frames: {total_frames}"
+            f"Resolution: "
+            f"{width}x{height}"
         )
 
         print(
@@ -235,20 +351,34 @@ class VideoProcessor:
         )
 
         print(
-            f"Frame skip: {self.frame_skip}"
+            f"Total frames: "
+            f"{total_frames}"
         )
+
+        print(
+            f"Frame skip: "
+            f"{self.frame_skip}"
+        )
+
+        print()
+
+        # ==================================================
+        # COUNTERS
+        # ==================================================
 
         frame_number = 0
 
         processed_frames = 0
 
-        # --------------------------------------------------
-        # Main video loop
-        # --------------------------------------------------
+        # ==================================================
+        # MAIN LOOP
+        # ==================================================
 
         while True:
 
-            success, frame = cap.read()
+            success, frame = (
+                cap.read()
+            )
 
             if not success:
                 break
@@ -256,11 +386,12 @@ class VideoProcessor:
             frame_number += 1
 
             # --------------------------------------------------
-            # Frame skipping
+            # FRAME SKIPPING
             # --------------------------------------------------
 
             if (
-                frame_number % self.frame_skip
+                frame_number
+                % self.frame_skip
                 != 0
             ):
                 continue
@@ -268,17 +399,19 @@ class VideoProcessor:
             processed_frames += 1
 
             # --------------------------------------------------
-            # Track faces
+            # TRACK FACES
             # --------------------------------------------------
 
-            tracks = self.tracker.track(
-                frame
+            tracks = (
+                self.tracker.track(
+                    frame
+                )
             )
 
             visible_track_ids = []
 
             # --------------------------------------------------
-            # Process each tracked face
+            # PROCESS TRACKS
             # --------------------------------------------------
 
             for track in tracks:
@@ -299,21 +432,24 @@ class VideoProcessor:
                     track_id
                 )
 
-                # ------------------------------------------
-                # Crop face
-                # ------------------------------------------
+                # --------------------------------------------------
+                # CROP FACE
+                # --------------------------------------------------
 
-                face_crop = self._crop_face(
-                    frame,
-                    bbox
+                face_crop = (
+                    self._crop_face(
+                        frame,
+                        bbox
+                    )
                 )
 
                 if face_crop is None:
+
                     continue
 
-                # ------------------------------------------
-                # Generate embedding
-                # ------------------------------------------
+                # --------------------------------------------------
+                # GENERATE EMBEDDING
+                # --------------------------------------------------
 
                 embedding = (
                     self.recognizer.get_embedding(
@@ -331,27 +467,39 @@ class VideoProcessor:
 
                     continue
 
-                # ------------------------------------------
-                # Identify / register
-                # ------------------------------------------
+                # --------------------------------------------------
+                # IDENTIFY / REGISTER
+                # --------------------------------------------------
 
                 (
                     person_id,
                     is_new,
                     similarity
-                ) = self.registry.identify_or_register(
-                    embedding
+                ) = (
+                    self.registry.identify_or_register(
+                        embedding
+                    )
                 )
 
-                # ------------------------------------------
-                # Print result
-                # ------------------------------------------
+                # --------------------------------------------------
+                # STATUS
+                # --------------------------------------------------
 
-                status = (
-                    "REGISTERED"
-                    if is_new
-                    else "RECOGNIZED"
-                )
+                if is_new:
+
+                    status = (
+                        "REGISTERED"
+                    )
+
+                else:
+
+                    status = (
+                        "RECOGNIZED"
+                    )
+
+                # --------------------------------------------------
+                # CONSOLE OUTPUT
+                # --------------------------------------------------
 
                 print(
                     f"Frame {frame_number}: "
@@ -362,9 +510,9 @@ class VideoProcessor:
                     f"{similarity:.3f})"
                 )
 
-                # ------------------------------------------
-                # Event manager
-                # ------------------------------------------
+                # --------------------------------------------------
+                # EVENT MANAGER
+                # --------------------------------------------------
 
                 self.event_manager.process_detection(
                     person_id=person_id,
@@ -375,7 +523,7 @@ class VideoProcessor:
                 )
 
             # --------------------------------------------------
-            # Update lost tracks / EXIT events
+            # UPDATE EVENT MANAGER
             # --------------------------------------------------
 
             self.event_manager.update_frame(
@@ -384,10 +532,14 @@ class VideoProcessor:
             )
 
             # --------------------------------------------------
-            # Progress
+            # PROGRESS
             # --------------------------------------------------
 
-            if processed_frames % 10 == 0:
+            if (
+                processed_frames
+                % 10
+                == 0
+            ):
 
                 print(
                     f"Processed frames: "
@@ -396,19 +548,39 @@ class VideoProcessor:
                     f"{frame_number}"
                 )
 
-        # --------------------------------------------------
-        # Video finished
-        # --------------------------------------------------
+        # ==================================================
+        # VIDEO FINISHED
+        # ==================================================
+
+        # Generate EXIT events for anyone still active.
+        self.event_manager.flush_remaining_tracks(
+            current_frame_number=frame_number
+        )
 
         cap.release()
 
+        # ==================================================
+        # RESULTS
+        # ==================================================
+
+        unique_visitors = (
+            self.database.get_unique_visitor_count()
+        )
+
         print()
-        print("=" * 60)
-        print("VIDEO PROCESSING FINISHED")
-        print("=" * 60)
+        print(
+            "=" * 60
+        )
+        print(
+            "VIDEO PROCESSING FINISHED"
+        )
+        print(
+            "=" * 60
+        )
 
         print(
-            f"Total frames: {total_frames}"
+            f"Total frames: "
+            f"{total_frames}"
         )
 
         print(
@@ -418,7 +590,9 @@ class VideoProcessor:
 
         print(
             f"Unique visitors: "
-            f"{self.database.get_unique_visitor_count()}"
+            f"{unique_visitors}"
         )
 
         print()
+
+        return True
