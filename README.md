@@ -746,7 +746,7 @@ docs/AI_PLANNING.md
 
 A demonstration video explaining the architecture, implementation, execution, logging, database, and test results is available here:
 
-**YouTube:** `PASTE_YOUR_YOUTUBE_LINK_HERE`
+**YouTube:** `https://youtu.be/x_pvGBGbanU`
 
 ---
 
